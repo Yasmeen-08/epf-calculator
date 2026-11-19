@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EPF Calculator</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  :root { --bg:#0f1b20; --card:#16232a; --line:#24353d; --text:#e8eef0;
+          --muted:#8fa3ab; --teal:#4fc3c0; --gold:#e5a93d; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:32px; background:var(--bg); color:var(--text);
+         font-family:Segoe UI, Inter, sans-serif; }
+  h1 { margin:0 0 6px; font-size:34px; }
+  .sub { color:var(--muted); margin-bottom:28px; line-height:1.5; }
+  .layout { display:grid; grid-template-columns:360px 1fr; gap:24px; max-width:1200px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:24px; }
+  label { display:block; margin:18px 0 8px; font-size:13px; letter-spacing:.08em;
+          text-transform:uppercase; color:var(--muted); }
+  label:first-child { margin-top:0; }
+  input[type=number] { width:100%; padding:14px; font-size:18px; color:var(--text);
+         background:var(--bg); border:1px solid var(--line); border-radius:8px; }
+  .hint { color:var(--muted); font-size:14px; margin-top:6px; }
+  .check { display:flex; gap:10px; align-items:center; margin-top:18px; color:var(--muted); }
+  .big { font-size:52px; font-weight:700; margin:6px 0; }
+  .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-top:20px; }
+  .stat { border-top:3px solid var(--line); padding-top:10px; }
+  .stat b { display:block; font-size:20px; margin-top:4px; }
+  .stat small { color:var(--muted); letter-spacing:.08em; text-transform:uppercase; font-size:12px; }
+  .right { display:flex; flex-direction:column; gap:24px; }
+  .table-wrap { max-height:320px; overflow-y:auto; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { padding:12px; text-align:right; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-size:12px; letter-spacing:.08em; position:sticky;
+       top:0; background:var(--card); }
+  th:first-child, td:first-child { text-align:left; }
+  ul { color:var(--muted); line-height:1.7; padding-left:20px; }
+  @media (max-width:900px){ .layout{grid-template-columns:1fr;} .stats{grid-template-columns:1fr 1fr;} }
+</style>
+</head>
+<body>
+<h1>EPF Calculator</h1>
+<div class="sub">Employees' Provident Fund corpus at retirement.<br>
+Interest is tax-free (within limits) and credited at the end of each financial year.</div>
+
+<div class="layout">
+  <div class="card">
+    <label>Monthly basic + DA (₹)</label>
+    <input type="number" id="basic" value="30000" min="0">
+
+    <label>Current age</label>
+    <input type="number" id="age" value="25" min="18" max="57">
+
+    <label>Retirement age</label>
+    <input type="number" id="retire_age" value="58" min="19" max="75">
+
+    <label>Current EPF balance (₹)</label>
+    <input type="number" id="opening" value="0" min="0">
+
+    <label>Yearly salary increase (%)</label>
+    <input type="number" id="raise_pct" value="5" step="0.1" min="0">
+
+    <label>Interest rate (% a year)</label>
+    <input type="number" id="rate" value="8.25" step="0.01" min="0">
+    <div class="hint">Declared yearly by EPFO. Change it to match the current rate.</div>
+
+    <div class="check">
+      <input type="checkbox" id="cap_eps" checked>
+      <span>Cap pension (EPS) wage at ₹15,000</span>
+    </div>
+  </div>
+
+  <div class="right">
+    <div class="card">
+      <label>Maturity value</label>
+      <div class="big" id="maturity">₹0</div>
+      <div class="hint" id="words"></div>
+      <div class="stats">
+        <div class="stat" style="border-color:var(--teal)"><small>You contribute</small><b id="emp">–</b></div>
+        <div class="stat" style="border-color:var(--gold)"><small>Employer adds</small><b id="er">–</b></div>
+        <div class="stat"><small>Interest earned</small><b id="int">–</b></div>
+        <div class="stat"><small>Interest share</small><b id="share">–</b></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">Balance by year</h3>
+      <canvas id="chart" height="110"></canvas>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">Year by year</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Year</th><th>You</th><th>Employer</th><th>Interest</th><th>Closing balance</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">How the numbers work</h3>
+      <ul>
+        <li>You pay 12% of basic + DA every month.</li>
+        <li>Your employer also pays 12%, but 8.33% (of wages up to ₹15,000) goes to the pension scheme (EPS). The rest goes into your EPF.</li>
+        <li>Interest is worked out every month on the running balance and added at year end.</li>
+        <li>The salary increase applies from the start of each new year.</li>
+        <li>Rates and rules can change, so check with EPFO.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<script>
+const inr = n => "₹" + Math.round(n).toLocaleString("en-IN");
+let chart;
+
+function words(n) {
+  if (n >= 1e7) return `About ${(n/1e7).toFixed(2)} crore`;
+  if (n >= 1e5) return `About ${(n/1e5).toFixed(2)} lakh`;
+  return "";
+}
+
+async function update() {
+  const body = {
+    basic: +document.getElementById("basic").value,
+    age: +document.getElementById("age").value,
+    retire_age: +document.getElementById("retire_age").value,
+    opening: +document.getElementById("opening").value,
+    raise_pct: +document.getElementById("raise_pct").value,
+    rate: +document.getElementById("rate").value,
+    cap_eps: document.getElementById("cap_eps").checked,
+  };
+  const r = await (await fetch("/api/calc", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body)
+  })).json();
+
+  document.getElementById("maturity").textContent = inr(r.maturity);
+  document.getElementById("words").textContent = `${words(r.maturity)} after ${r.years} years`;
+  document.getElementById("emp").textContent = inr(r.employee);
+  document.getElementById("er").textContent = inr(r.employer);
+  document.getElementById("int").textContent = inr(r.interest);
+  document.getElementById("share").textContent = (r.interest / r.maturity * 100).toFixed(1) + "%";
+
+  document.getElementById("rows").innerHTML = r.rows.map(x =>
+    `<tr><td>${x.year}</td><td>${inr(x.employee)}</td><td>${inr(x.employer)}</td>
+     <td>${inr(x.interest)}</td><td>${inr(x.balance)}</td></tr>`).join("");
+
+  const labels = r.rows.map(x => x.year);
+  const data = {
+    labels,
+    datasets: [
+      { label: "Amount invested", data: r.rows.map(x => x.contributed), backgroundColor: "#4fc3c0" },
+      { label: "Interest", data: r.rows.map(x => x.interest_total), backgroundColor: "#e5a93d" },
+    ],
+  };
+  if (chart) { chart.data = data; chart.update(); }
+  else {
+    chart = new Chart(document.getElementById("chart"), {
+      type: "bar", data,
+      options: {
+        scales: {
+          x: { stacked: true, ticks: { color: "#8fa3ab" }, grid: { display: false } },
+          y: { stacked: true, ticks: { color: "#8fa3ab", callback: v => "₹" + (v/1e5).toFixed(1) + " L" },
+               grid: { color: "#24353d" } },
+        },
+        plugins: { legend: { labels: { color: "#e8eef0" } } },
+      },
+    });
+  }
+}
+
+document.querySelectorAll("input").forEach(i => i.addEventListener("input", update));
+update();
+</script>
+</body>
+</html>
