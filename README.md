@@ -52,7 +52,7 @@ epf-calculator/
 ## Deployment
 
 Deployed for free on [Streamlit Community Cloud](https://share.streamlit.io) directly from this GitHub repository.
-Live Demo : https://epf-calculator-v7xguingba5bepyatw9rgz.streamlit.app/
+
 ## Author
 
 **Yasmeen Khan**
